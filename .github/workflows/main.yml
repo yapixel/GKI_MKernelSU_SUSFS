@@ -1,0 +1,193 @@
+name: Release
+
+on:
+  push:
+    paths:
+      - ".github/workflows/main.yml"
+  workflow_dispatch:
+
+env:
+  ksu: "v1.0.5"
+  susfs: "v1.5.9"
+
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    outputs:
+      ksu_version: ${{ steps.get_ksu_version.outputs.ksu_version }}
+
+    strategy:
+      matrix:
+        kernel:
+          - android12-5.10
+          - android13-5.10
+          - android13-5.15
+          - android14-5.15
+          - android14-6.1
+          - android15-6.6
+
+    steps:
+      - name: Initialize and Sync Kernel Source
+        run: |
+          sudo apt update -y && sudo apt install -y repo
+          repo init --depth 1 -u https://android.googlesource.com/kernel/manifest -b common-${{ matrix.kernel }}
+          repo sync -c --force-sync --optimized-fetch --no-tags --no-clone-bundle --prune -j$(nproc --all)
+
+      - name: Add KernelSU
+        working-directory: common
+        run: curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s ${{ env.ksu }}
+
+      - name: Get KernelSU Version
+        id: get_ksu_version
+        working-directory: common/KernelSU
+        run: echo "ksu_version=$(expr $(git rev-list --count HEAD) "+" 10200)" >> $GITHUB_OUTPUT
+
+      - name: Checkout SUSFS
+        run: |
+          git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ matrix.kernel }}
+          cd susfs4ksu
+
+          case "${{ matrix.kernel }}" in
+            "android12-5.10")
+              susfs_commit="b994a76465d39e38ac16a39e51aa07ef01ec6abc"
+            ;;
+            "android13-5.10")
+              susfs_commit="691a0a3ffe5b80899c884c2627db9c01f671e88f"
+            ;;
+            "android13-5.15")
+              susfs_commit="ad931027686e1029b8247dd596e40d4a51eb92c0"
+            ;;
+            "android14-5.15")
+              susfs_commit="51827292fac95a1885623521d99f8c164e237283"
+            ;;
+            "android14-6.1")
+              susfs_commit="a26ba8380e1d10b2169b8148967c4f5108c2a3f7"
+            ;;
+            "android15-6.6")
+              susfs_commit="0ed9845a3f6ed624d55484384f2b414a7527fc3b"
+            ;;
+          esac
+
+          git checkout ${susfs_commit}
+
+      - name: Apply SUSFS Patches
+        working-directory: common
+        run: |
+          cp ../susfs4ksu/kernel_patches/fs/* fs
+          cp ../susfs4ksu/kernel_patches/include/linux/* include/linux
+          patch -p1 < ../susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ matrix.kernel }}.patch
+          cd KernelSU
+          patch -p1 < ../../susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch
+
+      - name: Add Configuration
+        run: |
+          cat << EOF >> common/arch/arm64/configs/gki_defconfig
+          # KernelSU and SUSFS Config
+          CONFIG_KSU=y
+          CONFIG_KSU_SUSFS=y
+          CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT=n
+          CONFIG_KSU_SUSFS_SUS_PATH=y
+          CONFIG_KSU_SUSFS_SUS_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_KSU_DEFAULT_MOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_SUS_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SUS_KSTAT=y
+          CONFIG_KSU_SUSFS_TRY_UMOUNT=y
+          CONFIG_KSU_SUSFS_AUTO_ADD_TRY_UMOUNT_FOR_BIND_MOUNT=y
+          CONFIG_KSU_SUSFS_SPOOF_UNAME=y
+          CONFIG_KSU_SUSFS_ENABLE_LOG=y
+          CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y
+          CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y
+          CONFIG_KSU_SUSFS_OPEN_REDIRECT=y
+          CONFIG_KSU_SUSFS_SUS_SU=y
+          EOF
+
+          # Remove check_defconfig
+          sed -i 's|check_defconfig||g' common/build.config.gki
+
+      - name: Make working directory clean to avoid dirty
+        run: |
+          if [ -f ./common/BUILD.bazel ]; then
+            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' common/BUILD.bazel
+          fi
+          rm common/android/abi_gki_protected_exports_* || echo "No protected exports!"
+          rm -rf common/KernelSU/.git*
+          git config --global user.name "${{ github.actor }}"
+          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
+          cd common && git add -A && git commit -am "Add KernelSU and SUSFS"
+
+      - name: Build Kernel
+        run: |
+          if [ -e build/build.sh ]; then
+            LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
+          else
+            tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir="out/${{ matrix.kernel }}/dist" || exit 1
+          fi
+
+      - name: Copy Boot Images
+        run: |
+          mkdir artifacts && cd artifacts
+          if [ "${{ matrix.kernel }}" != "android12-5.10" ]; then
+            cp ../out/${{ matrix.kernel }}/dist/boot.img ${{ matrix.kernel }}_boot.img
+            cp ../out/${{ matrix.kernel }}/dist/boot-gz.img ${{ matrix.kernel }}_boot-gz.img
+            cp ../out/${{ matrix.kernel }}/dist/boot-lz4.img ${{ matrix.kernel }}_boot-lz4.img
+          fi
+
+      - name: Make AnyKernel3 Zip
+        run: |
+          git clone https://github.com/Kernel-SU/AnyKernel3.git && cd AnyKernel3
+          rm -rf .git
+          sed -i 's|^kernel\.string=.*|kernel.string=KernelSU SUSFS by SomeEmptyBox|' anykernel.sh
+          cp ../out/${{ matrix.kernel }}/dist/Image .
+          zip -r ../artifacts/${{ matrix.kernel }}-AnyKernel3.zip .
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@main
+        with:
+          name: ${{ matrix.kernel }}
+          path: artifacts
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@main
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@main
+        with:
+          path: artifacts
+
+      - name: Set Release Tag and Notes
+        run: |
+          cat << EOF > release_notes.md
+
+          Links:
+          -> [KernelSU Manager](https://github.com/tiann/KernelSU/releases/download/${{ env.ksu }}/KernelSU_${{ env.ksu }}_${{ needs.build.outputs.ksu_version }}-release.apk)
+          -> [Kernel Flasher](https://github.com/fatalcoder524/KernelFlasher)
+          -> [SUSFS Module](https://github.com/sidex15/susfs4ksu-module)
+
+          Notes:
+          -> Kernels are built on stable release tag for KernelSU and SUSFS
+          -> Flash SUSFS Module and make sure SUS SU is enabled
+          EOF
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: KernelSU ${{ env.ksu }} and SUSFS ${{ env.susfs }}
+          tag_name: ${{ env.ksu }}-${{ env.susfs }}
+          body_path: release_notes.md
+
+      - name: Upload Release Assets
+        run: |
+          for file in $(find artifacts -type f -name "*.zip" -o -name "*.img"); do
+            echo "Uploading ${file}..."
+            gh release upload "${{ env.ksu }}-${{ env.susfs }}" "${file}"
+          done
+        env:
+          GH_TOKEN: ${{ github.token }}
