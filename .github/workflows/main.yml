@@ -47,29 +47,7 @@ jobs:
         run: |
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ matrix.kernel }}
           cd susfs4ksu
-
-          case "${{ matrix.kernel }}" in
-            "android12-5.10")
-              susfs_commit="b994a76465d39e38ac16a39e51aa07ef01ec6abc"
-            ;;
-            "android13-5.10")
-              susfs_commit="691a0a3ffe5b80899c884c2627db9c01f671e88f"
-            ;;
-            "android13-5.15")
-              susfs_commit="ad931027686e1029b8247dd596e40d4a51eb92c0"
-            ;;
-            "android14-5.15")
-              susfs_commit="51827292fac95a1885623521d99f8c164e237283"
-            ;;
-            "android14-6.1")
-              susfs_commit="a26ba8380e1d10b2169b8148967c4f5108c2a3f7"
-            ;;
-            "android15-6.6")
-              susfs_commit="0ed9845a3f6ed624d55484384f2b414a7527fc3b"
-            ;;
-          esac
-
-          git checkout ${susfs_commit}
+          git checkout $(git log --grep="Bump version to ${{ env.susfs }}" --format="%H" -1)
 
       - name: Apply SUSFS Patches
         working-directory: common
