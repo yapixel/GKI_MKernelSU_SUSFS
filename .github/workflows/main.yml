@@ -83,16 +83,18 @@ jobs:
           # Remove check_defconfig
           sed -i 's|check_defconfig||g' common/build.config.gki
 
-      - name: Make working directory clean to avoid dirty
+      - name: Fix Wifi/Bluetooth for some devices
+        working-directory: common
         run: |
-          if [ -f ./common/BUILD.bazel ]; then
-            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' common/BUILD.bazel
+          if [ -f BUILD.bazel ]; then
+            sed -i '/^[[:space:]]*"protected_exports_list"[[:space:]]*:[[:space:]]*"android\/abi_gki_protected_exports_aarch64",$/d' BUILD.bazel
           fi
-          rm common/android/abi_gki_protected_exports_* || echo "No protected exports!"
-          rm -rf common/KernelSU/.git*
-          git config --global user.name "${{ github.actor }}"
-          git config --global user.email "${{ github.actor_id }}+${{ github.actor }}@users.noreply.github.com"
-          cd common && git add -A && git commit -am "Add KernelSU and SUSFS"
+          rm android/abi_gki_protected_exports_* || echo "No protected exports!"
+
+      - name: Remove -dirty from uname
+        run: |
+          sed -i 's| -dirty||g' common/scripts/setlocalversion
+          sed -i 's| -dirty||g' build/kernel/kleaf/workspace_status_stamp.py || echo "No workspace_status_stamp.py!"
 
       - name: Build Kernel
         run: |
