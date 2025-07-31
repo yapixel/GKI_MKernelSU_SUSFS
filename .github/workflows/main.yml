@@ -115,7 +115,7 @@ jobs:
         run: |
           git clone https://github.com/Kernel-SU/AnyKernel3.git && cd AnyKernel3
           rm -rf .git
-          sed -i 's|^kernel\.string=.*|kernel.string=KernelSU SUSFS by SomeEmptyBox|' anykernel.sh
+          sed -i 's|^kernel\.string=.*|kernel.string=KernelSU and SUSFS Kernels by SomeEmptyBox|' anykernel.sh
           cp ../out/${{ matrix.kernel }}/dist/Image .
           zip -r ../artifacts/${{ matrix.kernel }}-AnyKernel3.zip .
 
