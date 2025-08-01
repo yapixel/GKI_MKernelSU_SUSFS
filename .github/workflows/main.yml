@@ -34,7 +34,7 @@ jobs:
           repo init --depth 1 -u https://android.googlesource.com/kernel/manifest -b common-${{ matrix.kernel }}
           repo sync -c --force-sync --optimized-fetch --no-tags --no-clone-bundle --prune -j$(nproc --all)
 
-      - name: Add KernelSU
+      - name: Add KernelSU ${{ env.ksu }}
         working-directory: common
         run: curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s ${{ env.ksu }}
 
@@ -43,7 +43,7 @@ jobs:
         working-directory: common/KernelSU
         run: echo "ksu_version=$(expr $(git rev-list --count HEAD) "+" 10200)" >> $GITHUB_OUTPUT
 
-      - name: Checkout SUSFS
+      - name: Checkout SUSFS ${{ env.susfs }}
         run: |
           git clone https://gitlab.com/simonpunk/susfs4ksu.git -b gki-${{ matrix.kernel }}
           cd susfs4ksu
