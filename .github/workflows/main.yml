@@ -119,7 +119,7 @@ jobs:
           rm -rf .git
           sed -i 's|^kernel\.string=.*|kernel.string=KernelSU and SUSFS Kernels by SomeEmptyBox|' anykernel.sh
           cp ../out/${{ matrix.kernel }}/dist/Image .
-          zip -r ../artifacts/${{ matrix.kernel }}-AnyKernel3.zip .
+          zip -r ../artifacts/${{ matrix.kernel }}_AnyKernel3.zip .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
