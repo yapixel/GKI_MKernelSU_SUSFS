@@ -96,30 +96,31 @@ jobs:
           sed -i 's| -dirty||g' common/scripts/setlocalversion
           sed -i 's| -dirty||g' build/kernel/kleaf/workspace_status_stamp.py || echo "No workspace_status_stamp.py!"
 
-      - name: Build Kernel
-        run: |
-          if [ -e build/build.sh ]; then
-            LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh || exit 1
-          else
-            tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir="out/${{ matrix.kernel }}/dist" || exit 1
-          fi
+      - name: Compile Kernel using build.sh
+        if: matrix.kernel == 'android12-5.10' || matrix.kernel == 'android13-5.10' || matrix.kernel == 'android13-5.15'
+        run: LTO=thin BUILD_CONFIG=common/build.config.gki.aarch64 build/build.sh
+
+      - name: Compile Kernel using bazel
+        if: matrix.kernel == 'android14-5.15' || matrix.kernel == 'android14-6.1' || matrix.kernel == 'android15-6.6'
+        run: tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir="out/${{ matrix.kernel }}/dist"
+
+      - name: Make artifacts directory
+        run: mkdir artifacts
 
       - name: Copy Boot Images
-        run: |
-          mkdir artifacts && cd artifacts
-          if [ "${{ matrix.kernel }}" != "android12-5.10" ]; then
-            cp ../out/${{ matrix.kernel }}/dist/boot.img ${{ matrix.kernel }}_boot.img
-            cp ../out/${{ matrix.kernel }}/dist/boot-gz.img ${{ matrix.kernel }}_boot-gz.img
-            cp ../out/${{ matrix.kernel }}/dist/boot-lz4.img ${{ matrix.kernel }}_boot-lz4.img
-          fi
+        working-directory: artifacts
+        if: matrix.kernel != 'android12-5.10'
+        run: for boot_format in boot boot-gz boot-lz4; do cp ../out/${{ matrix.kernel }}/dist/${boot_format}.img ${{ matrix.kernel }}_${boot_format}.img; done
 
-      - name: Make AnyKernel3 Zip
-        run: |
-          git clone https://github.com/Kernel-SU/AnyKernel3.git && cd AnyKernel3
-          rm -rf .git
-          sed -i 's|^kernel\.string=.*|kernel.string=KernelSU and SUSFS Kernels by SomeEmptyBox|' anykernel.sh
-          cp ../out/${{ matrix.kernel }}/dist/Image .
-          zip -r ../artifacts/${{ matrix.kernel }}_AnyKernel3.zip .
+      - name: Checkout AnyKernel
+        uses: actions/checkout@v4
+        with:
+          repository: Kernel-SU/AnyKernel3
+          path: AnyKernel
+
+      - name: Make AnyKernel Zip
+        working-directory: AnyKernel
+        run: cp ../out/${{ matrix.kernel }}/dist/Image . && zip -r ../artifacts/${{ matrix.kernel }}_AnyKernel.zip .
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
