@@ -104,8 +104,8 @@ jobs:
         if: matrix.kernel == 'android14-5.15' || matrix.kernel == 'android14-6.1' || matrix.kernel == 'android15-6.6'
         run: tools/bazel run --disk_cache=/home/runner/.cache/bazel --config=fast --config=stamp --lto=thin //common:kernel_aarch64_dist -- --dist_dir="out/${{ matrix.kernel }}/dist"
 
-      - name: Make artifacts directory
-        run: mkdir artifacts
+      - name: Copy Kernel Image
+        run: mkdir artifacts && cp out/${{ matrix.kernel }}/dist/Image artifacts/${{ matrix.kernel }}_Image
 
       - name: Copy Boot Images
         working-directory: artifacts
@@ -169,7 +169,7 @@ jobs:
 
       - name: Upload Release Assets
         run: |
-          for file in $(find artifacts -type f -name "*.zip" -o -name "*.img"); do
+          for file in $(find artifacts -type f); do
             echo "Uploading ${file}..."
             gh release upload "${{ env.ksu }}-${{ env.susfs }}" "${file}"
           done
