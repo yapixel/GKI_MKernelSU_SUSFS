@@ -1,5 +1,9 @@
 name: Release
 
+permissions:
+  contents: write  # Allow writing to repository contents (for pushing tags)
+  actions: write   # Allows triggering actions
+
 on:
   push:
     paths:
